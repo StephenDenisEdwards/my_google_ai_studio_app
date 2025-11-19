@@ -1,0 +1,7 @@
+{
+  "name": "Gemini Live Monitor",
+  "description": "Real-time audio transcription and intent analysis using Gemini Live API.",
+  "requestFramePermissions": [
+    "microphone"
+  ]
+}
