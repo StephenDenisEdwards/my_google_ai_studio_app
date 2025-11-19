@@ -9,7 +9,7 @@ const API_KEY = process.env.API_KEY as string;
 // Tool Definitions
 const reportIntentTool: FunctionDeclaration = {
   name: 'report_intent',
-  description: 'Report a detected question or imperative command from the user speech.',
+  description: 'Report a detected question or imperative command and provide an answer or acknowledgment.',
   parameters: {
     type: Type.OBJECT,
     properties: {
@@ -21,9 +21,13 @@ const reportIntentTool: FunctionDeclaration = {
         type: Type.STRING, 
         enum: ['QUESTION', 'IMPERATIVE'], 
         description: 'The classification of the detected speech.' 
+      },
+      answer: {
+        type: Type.STRING,
+        description: 'A concise, helpful answer to the question, or a confirmation that the command is understood/simulated.'
       }
     },
-    required: ['text', 'type']
+    required: ['text', 'type', 'answer']
   }
 };
 
@@ -66,15 +70,20 @@ export class LiveManager {
           responseModalities: [Modality.AUDIO],
           inputAudioTranscription: {}, // Enable transcription
           systemInstruction: `
-            You are a dedicated Conversation Monitor and Intent Analyzer.
-            Your goal is to listen passively to the user's audio stream.
+            You are a dedicated Conversation Monitor and Assistant.
             
-            1. **Transcribe**: The system handles this, but you must listen carefully.
-            2. **Analyze**: Detect if the user asks a specific QUESTION or issues an IMPERATIVE COMMAND (instruction).
-            3. **Report**: If you detect a Question or Command, IMMEDIATELY call the tool 'report_intent' with the exact text and type.
-            4. **Silence**: Do not engage in conversation. Do not answer the questions. Do not obey the commands. Merely report them.
+            1. **Listen**: Monitor the user's audio stream.
+            2. **Analyze**: Detect if the user asks a QUESTION or issues an IMPERATIVE COMMAND.
+            3. **Respond**: 
+               - If a **Question** is detected, formulate a concise, helpful answer.
+               - If an **Imperative** is detected, formulate a confirmation or a simulated execution response (e.g., "I have noted that task").
+            4. **Report**: IMMEDIATELY call the tool 'report_intent' with:
+               - 'text': The user's exact words.
+               - 'type': QUESTION or IMPERATIVE.
+               - 'answer': Your generated response/answer.
             
-            If there is silence or casual chatter, do nothing.
+            Do not generate spoken audio responses for these interactions; rely solely on the tool to convey the answer.
+            If there is silence or casual chatter that is not a question or command, do nothing.
           `,
           tools: [{ functionDeclarations: [reportIntentTool] }]
         },
@@ -138,7 +147,8 @@ export class LiveManager {
           const args = fc.args as any;
           this.onIntentDetected({
             text: args.text,
-            type: args.type as IntentType
+            type: args.type as IntentType,
+            answer: args.answer
           });
 
           // Acknowledge tool execution to keep model happy

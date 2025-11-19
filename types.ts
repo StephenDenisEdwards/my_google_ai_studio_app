@@ -8,6 +8,7 @@ export interface DetectedIntent {
   text: string;
   type: IntentType;
   timestamp: number;
+  answer?: string;
 }
 
 export interface TranscriptSegment {

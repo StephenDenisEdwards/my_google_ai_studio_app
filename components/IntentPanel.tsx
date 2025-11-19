@@ -55,7 +55,7 @@ export const IntentPanel: React.FC<IntentPanelProps> = ({ intents }) => {
                   </svg>
                 )}
               </div>
-              <div>
+              <div className="flex-1">
                 <div className="flex items-center gap-2 mb-1">
                   <span className={`text-xs font-bold uppercase tracking-wider ${
                     intent.type === IntentType.QUESTION ? 'text-blue-400' : 'text-amber-400'
@@ -67,6 +67,19 @@ export const IntentPanel: React.FC<IntentPanelProps> = ({ intents }) => {
                   </span>
                 </div>
                 <p className="text-zinc-200 font-medium leading-snug">"{intent.text}"</p>
+                
+                {intent.answer && (
+                  <div className="mt-3 pt-3 border-t border-white/5 animate-in fade-in duration-700">
+                    <div className="flex gap-2">
+                       <div className="mt-0.5 bg-zinc-700/50 rounded p-1 h-fit shrink-0">
+                          <svg className="w-3 h-3 text-green-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                          </svg>
+                       </div>
+                       <p className="text-zinc-400 text-sm leading-relaxed selection:bg-green-500/30 selection:text-green-100">{intent.answer}</p>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           </div>
