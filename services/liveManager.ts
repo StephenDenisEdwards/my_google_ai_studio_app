@@ -6,6 +6,9 @@ import { DetectedIntent, IntentType } from '../types';
 const MODEL_NAME = 'gemini-2.5-flash-native-audio-preview-09-2025';
 const API_KEY = process.env.API_KEY as string;
 
+// Helper type for the session object since it is not exported by the SDK
+type LiveSession = Awaited<ReturnType<GoogleGenAI['live']['connect']>>;
+
 // Tool Definitions
 const reportIntentTool: FunctionDeclaration = {
   name: 'report_intent',
@@ -33,7 +36,7 @@ const reportIntentTool: FunctionDeclaration = {
 
 export class LiveManager {
   private ai: GoogleGenAI;
-  private sessionPromise: Promise<any> | null = null;
+  private session: LiveSession | null = null;
   private inputAudioContext: AudioContext | null = null;
   private stream: MediaStream | null = null;
   private processor: ScriptProcessorNode | null = null;
@@ -56,18 +59,27 @@ export class LiveManager {
 
     try {
       // Initialize Audio Context
+      // Note: Some browsers might ignore 'sampleRate' in options and use hardware rate
       this.inputAudioContext = new (window.AudioContext || (window as any).webkitAudioContext)({
-        sampleRate: 16000, // Gemini prefers 16k input
+        sampleRate: 16000, 
       });
+
+      // Ensure context is running
+      if (this.inputAudioContext.state === 'suspended') {
+        await this.inputAudioContext.resume();
+      }
 
       // Get Microphone Stream
       this.stream = await navigator.mediaDevices.getUserMedia({ audio: true });
 
       // Start Gemini Session
-      this.sessionPromise = this.ai.live.connect({
+      const sessionPromise = this.ai.live.connect({
         model: MODEL_NAME,
         config: {
           responseModalities: [Modality.AUDIO],
+          speechConfig: {
+            voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Puck' } }
+          },
           inputAudioTranscription: {}, // Enable transcription
           systemInstruction: `
             You are a dedicated Conversation Monitor and Assistant.
@@ -95,9 +107,12 @@ export class LiveManager {
         }
       });
 
+      // Wait for session to be ready to avoid race conditions
+      this.session = await sessionPromise;
       this.isConnected = true;
 
     } catch (err) {
+      console.error('Connection failed', err);
       this.onError(err instanceof Error ? err : new Error('Failed to connect'));
       this.disconnect();
     }
@@ -112,6 +127,8 @@ export class LiveManager {
     this.processor = this.inputAudioContext.createScriptProcessor(4096, 1, 1);
 
     this.processor.onaudioprocess = (e) => {
+      if (!this.inputAudioContext) return;
+      
       const inputData = e.inputBuffer.getChannelData(0);
       
       // Calculate volume for visualizer
@@ -123,10 +140,13 @@ export class LiveManager {
       this.onVolumeUpdate(rms);
 
       // Send to Gemini
-      const pcmBlob = createPcmBlob(inputData);
-      this.sessionPromise?.then((session) => {
-        session.sendRealtimeInput({ media: pcmBlob });
-      });
+      // CRITICAL: Use the actual sampleRate of the context, not the requested one.
+      // Mismatch between actual and reported sample rates causes server errors.
+      const pcmBlob = createPcmBlob(inputData, this.inputAudioContext.sampleRate);
+      
+      if (this.session) {
+        this.session.sendRealtimeInput({ media: pcmBlob });
+      }
     };
 
     this.source.connect(this.processor);
@@ -152,22 +172,18 @@ export class LiveManager {
           });
 
           // Acknowledge tool execution to keep model happy
-          this.sessionPromise?.then(session => {
-            session.sendToolResponse({
-              functionResponses: {
+          if (this.session) {
+            this.session.sendToolResponse({
+              functionResponses: [{
                 id: fc.id,
                 name: fc.name,
                 response: { result: 'logged' }
-              }
+              }]
             });
-          });
+          }
         }
       }
     }
-
-    // We largely ignore audio output here as we are in "monitor" mode.
-    // However, we must process it or at least not crash if it arrives.
-    // If we wanted to hear the model's "acknowledgments", we would decode and play here.
   }
 
   private handleClose() {
@@ -177,11 +193,13 @@ export class LiveManager {
 
   private handleError(e: ErrorEvent) {
     console.error('Gemini Live Error', e);
-    this.onError(new Error('Connection error detected'));
+    const msg = (e as any).message || 'Connection error detected';
+    this.onError(new Error(msg));
   }
 
   public disconnect() {
     this.isConnected = false;
+    this.session = null;
     
     if (this.source) {
       this.source.disconnect();
@@ -199,10 +217,6 @@ export class LiveManager {
       this.inputAudioContext.close();
       this.inputAudioContext = null;
     }
-
-    // Note: session.close() isn't explicitly available on the session object in the current SDK pattern often,
-    // but the connection drops when we stop sending and the object goes out of scope or if we had a close method.
-    // For now, stopping the audio input effectively stops the interaction flow.
     
     this.onDisconnect();
   }

@@ -1,16 +1,19 @@
 import { Blob } from '@google/genai';
 
-export function createPcmBlob(data: Float32Array): Blob {
+export function createPcmBlob(data: Float32Array, sampleRate: number): Blob {
   const l = data.length;
   const int16 = new Int16Array(l);
   for (let i = 0; i < l; i++) {
-    // Clamp values to [-1, 1] before scaling to avoid overflow/distortion
-    const s = Math.max(-1, Math.min(1, data[i]));
-    int16[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+    let val = data[i];
+    // Clamp values to -1.0 to 1.0 to prevent overflow wrapping
+    if (val > 1) val = 1;
+    if (val < -1) val = -1;
+    // Scale to Int16 range
+    int16[i] = val < 0 ? val * 0x8000 : val * 0x7FFF;
   }
   return {
     data: arrayBufferToBase64(int16.buffer),
-    mimeType: 'audio/pcm;rate=16000',
+    mimeType: `audio/pcm;rate=${sampleRate}`,
   };
 }
 
@@ -36,8 +39,6 @@ export async function decodeAudioData(
     bytes[i] = binaryString.charCodeAt(i);
   }
   
-  // Convert raw PCM to AudioBuffer
-  // Gemini output is typically 1 channel, 24kHz PCM 16-bit
   const dataInt16 = new Int16Array(bytes.buffer);
   const buffer = ctx.createBuffer(1, dataInt16.length, sampleRate);
   const channelData = buffer.getChannelData(0);
